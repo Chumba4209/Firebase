@@ -1,0 +1,125 @@
+// Include required libraries
+#if defined(ESP32)
+#include <WiFi.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#endif
+
+#include <Firebase_ESP_Client.h>
+#include <addons/TokenHelper.h>
+#include <Adafruit_BMP085.h>    // BMP180 sensor
+#include <Adafruit_GFX.h>       // OLED graphics
+#include <Adafruit_SSD1306.h>   // OLED driver
+
+// OLED configuration
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// BMP180 sensor instance
+Adafruit_BMP085 bmp;
+
+// WiFi credentials
+#define WIFI_SSID "Lukrasta"
+#define WIFI_PASSWORD "Cycy12345"
+
+// Firebase credentials
+#define API_KEY "AIzaSyCbyeMEQ5g8UpT8PoEYdQ5ODUdI-vi55YU"
+#define FIREBASE_PROJECT_ID "bmp180-firestore"
+#define USER_EMAIL "cybrin101@gmail.com"
+#define USER_PASSWORD "Sacho3280."
+
+// Firebase objects
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize OLED
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED not found");
+    while (1);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("Initializing...");
+  display.display();
+
+  // Start BMP180
+  if (!bmp.begin()) {
+    Serial.println("BMP180 not found");
+    display.println("Sensor error!");
+    display.display();
+    while (1);
+  }
+
+  // Connect to Wi-Fi
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(300);
+  }
+  Serial.println();
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+
+  // Firebase setup
+  Serial.printf("Firebase Client v%s\n\n", FIREBASE_CLIENT_VERSION);
+  config.api_key = API_KEY;
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+  config.token_status_callback = tokenStatusCallback;
+
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+}
+
+void loop() {
+  String documentPath = "EspData/BMP180";
+  FirebaseJson content;
+
+  // TEMPORARY CALIBRATION OFFSET (adjust if sensor is faulty)
+  float temperature = bmp.readTemperature() - 170; // °C
+  float pressure = (bmp.readPressure() / 100.0) - 300; // hPa
+
+  Serial.print("Temp: "); Serial.println(temperature);
+  Serial.print("Pres: "); Serial.println(pressure);
+
+  // OLED display
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.print("BMP180");
+  display.setCursor(0,20);
+  display.print("Temp: ");
+  display.print(temperature, 2);
+  display.println(" C");
+  display.setCursor(0, 40);
+  display.print("Pres: ");
+  display.print(pressure, 2);
+  display.println(" hPa");
+  display.display();
+
+  // Send to Firebase
+  if (!isnan(temperature) && !isnan(pressure)) {
+    content.set("fields/Temperature/stringValue", String(temperature, 2));
+    content.set("fields/Pressure/stringValue", String(pressure, 2));
+
+    Serial.print("Update/Add BMP180 Data... ");
+    if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", documentPath.c_str(), content.raw(), "Temperature") &&
+        Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", documentPath.c_str(), content.raw(), "Pressure")) {
+      Serial.printf("ok\n%s\n\n", fbdo.payload().c_str());
+    } else {
+      Serial.println(fbdo.errorReason());
+    }
+  } else {
+    Serial.println("Failed to read BMP180 data.");
+  }
+
+  delay(10000); // every 10 seconds
+}
