@@ -1,1 +1,158 @@
+// Include required libraries
+#if defined(ESP32)
+#include <WiFi.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#endif
+
+#include <Firebase_ESP_Client.h>
+#include <addons/TokenHelper.h>
+#include <Adafruit_BMP085.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFiManager.h>  // WiFiManager for runtime config
+
+// OLED configuration
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// BMP180 sensor instance
+Adafruit_BMP085 bmp;
+
+// Default credentials (can be overridden via portal)
+#define DEFAULT_WIFI_SSID "Lukrasta"
+#define DEFAULT_WIFI_PASSWORD "Cycy12345"
+#define DEFAULT_API_KEY "AIzaSyCbyeMEQ5g8UpT8PoEYdQ5ODUdI-vi55YU"
+#define DEFAULT_PROJECT_ID "bmp180-firestore"
+#define DEFAULT_USER_EMAIL "cybrin101@gmail.com"
+#define DEFAULT_USER_PASSWORD "Sacho3280."
+
+// Custom config values
+char api_key[100] = DEFAULT_API_KEY;
+char project_id[100] = DEFAULT_PROJECT_ID;
+char user_email[100] = DEFAULT_USER_EMAIL;
+char user_password[100] = DEFAULT_USER_PASSWORD;
+
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+void startWiFiManager() {
+  WiFiManager wm;
+  wm.setConfigPortalBlocking(true);
+  wm.setConfigPortalTimeout(300);
+
+  WiFiManagerParameter custom_api_key("api", "Firebase API Key", api_key, 100);
+  WiFiManagerParameter custom_project_id("pid", "Firebase Project ID", project_id, 100);
+  WiFiManagerParameter custom_email("email", "User Email", user_email, 100);
+  WiFiManagerParameter custom_pass("pass", "User Password", user_password, 100);
+
+  wm.addParameter(&custom_api_key);
+  wm.addParameter(&custom_project_id);
+  wm.addParameter(&custom_email);
+  wm.addParameter(&custom_pass);
+
+  wm.startConfigPortal("BMP180 Config");
+
+  strcpy(api_key, custom_api_key.getValue());
+  strcpy(project_id, custom_project_id.getValue());
+  strcpy(user_email, custom_email.getValue());
+  strcpy(user_password, custom_pass.getValue());
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // OLED Init
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED not found");
+    while (1);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("Initializing...");
+  display.setCursor(0, 10);
+  display.println("Connect to BMP180 Config");
+  display.println("Edit Credentials");
+  display.println("Save");
+  display.display();
+
+  if (!bmp.begin()) {
+    Serial.println("BMP180 not found");
+    display.println("Sensor error!");
+    display.display();
+    while (1);
+  }
+
+  // Start config portal every time
+  startWiFiManager();
+
+  // Connect WiFi
+  WiFi.begin();
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(300);
+  }
+  Serial.println();
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+  display.setCursor(0, 50);
+  display.println("Connected.");
+  display.display();
+
+  // Firebase
+  Serial.printf("Firebase Client v%s\n\n", FIREBASE_CLIENT_VERSION);
+  config.api_key = api_key;
+  auth.user.email = user_email;
+  auth.user.password = user_password;
+  config.token_status_callback = tokenStatusCallback;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+}
+
+void loop() {
+  String documentPath = "EspData/BMP180";
+  FirebaseJson content;
+
+  float temperature = bmp.readTemperature() - 170;
+  float pressure = (bmp.readPressure() / 100.0) - 300;
+
+  Serial.print("Temp: "); Serial.println(temperature);
+  Serial.print("Pres: "); Serial.println(pressure);
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.print("BMP180");
+  display.setCursor(0, 20);
+  display.print("Temp: ");
+  display.print(temperature, 2);
+  display.println(" C");
+  display.setCursor(0, 40);
+  display.print("Pres: ");
+  display.print(pressure, 2);
+  display.println(" hPa");
+  display.display();
+
+  if (!isnan(temperature) && !isnan(pressure)) {
+    content.set("fields/Temperature/stringValue", String(temperature, 2));
+    content.set("fields/Pressure/stringValue", String(pressure, 2));
+
+    Serial.print("Update/Add BMP180 Data... ");
+    if (Firebase.Firestore.patchDocument(&fbdo, project_id, "", documentPath.c_str(), content.raw(), "Temperature") &&
+        Firebase.Firestore.patchDocument(&fbdo, project_id, "", documentPath.c_str(), content.raw(), "Pressure")) {
+      Serial.printf("ok\n%s\n\n", fbdo.payload().c_str());
+    } else {
+      Serial.println(fbdo.errorReason());
+    }
+  } else {
+    Serial.println("Failed to read BMP180 data.");
+  }
+
+  delay(10000);
+}
 
