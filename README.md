@@ -1,9 +1,9 @@
 # Connecting BMP180 to Firebase
-This project uses a D1 Mini microcontroller to read temperature and pressure data from a BMP180 sensor, display it on an OLED screen, and upload the readings to Firebase Firestore. The system uses WiFiManager for flexible WiFi and Firebase credential configuration. 
+This project uses a  microcontroller(C3Mini/ D1 Mini) to read temperature and pressure data from a BMP180 sensor, display it on an OLED screen, and upload the readings to Firebase Firestore. The system uses WiFiManager for flexible WiFi and Firebase credential configuration. 
 
 *Hardware Requirements*
 
-* D1 Mini (ESP8266-based microcontroller)
+* C3 Mini or D1 Mini (ESP8266-based or esp32- based microcontroller)
 * BMP180 Barometric Pressure Sensor
 * 0.96" I2C OLED Display (SSD1306)
 
